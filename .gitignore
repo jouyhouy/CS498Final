@@ -30,7 +30,3 @@ coverage.xml
 # Local environment files
 .env.local
 .env.*.local
-
-# Optional generated exports (keep source markdown)
-slides/*.pdf
-slides/*.pptx
