@@ -1,9 +1,9 @@
 import os
 from pymongo import MongoClient
 
-MONGO_URL = ""
+MONGO_URL = "mongodb://127.0.0.1:27017"
 MONGO = os.getenv("MONGO", MONGO_URL)
-client = MongoClient(MONGO)
+client = MongoClient(MONGO, serverSelectionTimeoutMS=5000)
 db = client.twitter_project
 tweets = db.tweets
 
