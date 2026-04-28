@@ -25,13 +25,13 @@ The purpose of this backend is to:
 Tested locally with Python `3.14.4` in `.venv`.
 
 ## Environment Variables
-Create a `.env` file in the `backend/` directory with:
+Create a `.env` file in the `backend/` directory, or export the variable in your shell, with:
 
 ```env
 MONGODB_URI=your_mongodb_connection_string
 ```
 
-The app will exit on startup if `.env` is missing or cannot be loaded.
+The app will exit on startup if `MONGODB_URI` is not set.
 
 ## Run Locally
 

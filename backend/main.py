@@ -1,21 +1,22 @@
+import json
 import os
-import sys
 from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
 from dotenv import load_dotenv
 
-success: bool = load_dotenv()
-if not success:
-    print("Failed to load .env file")
-    sys.exit(1)
+load_dotenv()
 
-client: MongoClient = MongoClient(os.getenv("MONGODB_URI"))
+mongodb_uri = os.getenv("MONGODB_URI")
+if not mongodb_uri:
+    raise RuntimeError("MONGODB_URI is not set.")
+
+client: MongoClient = MongoClient(mongodb_uri)
 db: Database = client["twitter_project"]
 tweets: Collection[dict[str, Any]] = db["tweets"]
 
@@ -70,6 +71,179 @@ app = FastAPI()
 @app.get("/")
 def read_root():
     return {"Hello": "World"}
+
+
+def encode_cursor(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, separators=(",", ":"), default=str)
+
+
+def decode_cursor(cursor: str | None) -> dict[str, Any] | None:
+    if not cursor:
+        return None
+
+    try:
+        payload = json.loads(cursor)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Invalid cursor.") from exc
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid cursor.")
+
+    return payload
+
+
+def score_expression() -> dict[str, Any]:
+    return {
+        "$add": [
+            {"$ifNull": ["$metrics.favorite_count", 0]},
+            {"$multiply": [{"$ifNull": ["$metrics.retweet_count", 0]}, 2]},
+            {"$ifNull": ["$metrics.reply_count", 0]},
+        ]
+    }
+
+
+def project_feed_document() -> dict[str, Any]:
+    return {
+        "_id": 0,
+        "id": 1,
+        "created_at": 1,
+        "text": 1,
+        "lang": 1,
+        "tweet_type": 1,
+        "user": 1,
+        "reply": 1,
+        "retweeted_status_id": 1,
+        "quoted_status_id": 1,
+        "place": 1,
+        "hashtags": 1,
+        "metrics": 1,
+        "raw": 1,
+    }
+
+
+@app.get("/api/tweets")
+def read_tweets_feed(
+    sort: Literal["latest", "popular"] = Query(default="latest"),
+    limit: int = Query(default=20, ge=1, le=100),
+    cursor: str | None = Query(default=None),
+):
+    cursor_data = decode_cursor(cursor)
+    fetch_limit = limit + 1
+
+    if sort == "latest":
+        pipeline: list[dict[str, Any]] = []
+
+        if cursor_data is not None:
+            cursor_created_at = cursor_data.get("created_at")
+            cursor_id = cursor_data.get("id")
+
+            if not isinstance(cursor_created_at, str) or not isinstance(cursor_id, int):
+                raise HTTPException(status_code=400, detail="Invalid cursor.")
+
+            try:
+                created_at_value = datetime.fromisoformat(cursor_created_at)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Invalid cursor.") from exc
+
+            pipeline.append(
+                {
+                    "$match": {
+                        "$or": [
+                            {"created_at": {"$lt": created_at_value}},
+                            {"created_at": created_at_value, "id": {"$lt": cursor_id}},
+                        ]
+                    }
+                }
+            )
+
+        pipeline.extend(
+            [
+                {"$sort": {"created_at": -1, "id": -1}},
+                {"$limit": fetch_limit},
+                {"$project": project_feed_document()},
+            ]
+        )
+
+        docs = list(tweets.aggregate(pipeline, allowDiskUse=True))
+
+    elif sort == "popular":
+        pipeline = [
+            {"$addFields": {"score": score_expression()}},
+        ]
+
+        if cursor_data is not None:
+            cursor_score = cursor_data.get("score")
+            cursor_created_at = cursor_data.get("created_at")
+            cursor_id = cursor_data.get("id")
+
+            if not isinstance(cursor_score, int) or not isinstance(cursor_created_at, str) or not isinstance(cursor_id, int):
+                raise HTTPException(status_code=400, detail="Invalid cursor.")
+
+            try:
+                created_at_value = datetime.fromisoformat(cursor_created_at)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Invalid cursor.") from exc
+
+            pipeline.append(
+                {
+                    "$match": {
+                        "$or": [
+                            {"score": {"$lt": cursor_score}},
+                            {
+                                "score": cursor_score,
+                                "created_at": {"$lt": created_at_value},
+                            },
+                            {
+                                "score": cursor_score,
+                                "created_at": created_at_value,
+                                "id": {"$lt": cursor_id},
+                            },
+                        ]
+                    }
+                }
+            )
+
+        pipeline.extend(
+            [
+                {"$sort": {"score": -1, "created_at": -1, "id": -1}},
+                {"$limit": fetch_limit},
+                {"$project": {**project_feed_document(), "score": 1}},
+            ]
+        )
+
+        docs = list(tweets.aggregate(pipeline, allowDiskUse=True))
+
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported sort order.")
+
+    has_more = len(docs) > limit
+    page = docs[:limit]
+
+    next_cursor = None
+    if has_more and page:
+        last_doc = page[-1]
+
+        if sort == "latest":
+            next_cursor = encode_cursor(
+                {
+                    "created_at": last_doc["created_at"].isoformat(),
+                    "id": int(last_doc["id"]),
+                }
+            )
+        else:
+            next_cursor = encode_cursor(
+                {
+                    "score": int(last_doc["score"]),
+                    "created_at": last_doc["created_at"].isoformat(),
+                    "id": int(last_doc["id"]),
+                }
+            )
+
+    if sort == "popular":
+        for item in page:
+            item.pop("score", None)
+
+    return {"data": page, "nextCursor": next_cursor}
 
 def query_top_country():
     pipeline = [
