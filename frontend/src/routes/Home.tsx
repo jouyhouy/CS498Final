@@ -40,10 +40,10 @@ const Home: React.FC = () => {
                 <Col md={6} lg={4}>
                     <Card className="h-100">
                         <CardBody className="d-flex flex-column">
-                            <CardTitle tag="h5">Explore by Country</CardTitle>
-                            <CardText>Placeholder for country-based exploration pages.</CardText>
-                            <Button color="secondary" className="mt-auto" tag={Link} to="/by-country">
-                                Go to Countries
+                            <CardTitle tag="h5">Most Active Countries</CardTitle>
+                            <CardText>View the top countries that have the most tweets!</CardText>
+                            <Button color="secondary" className="mt-auto" tag={Link} to="/top-countries">
+                                Go to Top Countries
                             </Button>
                         </CardBody>
                     </Card>

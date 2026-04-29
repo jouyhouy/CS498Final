@@ -5,6 +5,7 @@ import Footer from "./components/Footer"
 /** Route Declarations */
 import Home from "./routes/Home"
 import Tweets from "./routes/Tweets"
+import TopCountries from './routes/TopCountries'
 /** End Route Declarations */
 
 const App = (): React.JSX.Element => {
@@ -14,6 +15,7 @@ const App = (): React.JSX.Element => {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/tweets" element={<Tweets />} />
+        <Route path="/top-countries" element={<TopCountries />} />
       </Routes>
       <Footer />
     </BrowserRouter>
