@@ -317,23 +317,37 @@ def read_tweets_feed(
 
     return {"data": page, "nextCursor": next_cursor}
 
-def query_top_country():
+@app.get("/api/most-active-user")
+def get_most_active_users():
+    user = query_most_active_user()
+    return user.index(0)
+
+class TopCountry(BaseModel):
+    tweet_count: int
+    country: str
+
+
+@app.get("/api/top-countries", response_model=list[TopCountry])
+def get_top_countries():
+    countries: list[TopCountry] = query_top_countries()
+    return countries
+
+def query_top_countries():
     pipeline = [
         {"$match": {
-            "place": {"$ne": None},
-            "place.country": {"$ne": None}
+            "place.country": {"$exists": True, "$ne": None}
         }},
         {"$group": {
             "_id": "$place.country",
             "tweet_count": {"$sum": 1}
         }},
-        {"$sort": {"tweet_count": -1}},
-        {"$limit": 1},
-        {"$project": {"_id": 0, "country": "$_id", "tweet_count": 1}}
+        {"$project": {"_id": 0, "country": "$_id", "tweet_count": 1}},
+        {"$sort": {"tweet_count": -1}}
     ]
+
     return list(tweets.aggregate(pipeline))
 
-def query_most_active_user():
+def query_most_active_user() -> list:
     pipeline = [
         {"$match": {"user.id": {"$ne": None}}},
         {"$group": {
