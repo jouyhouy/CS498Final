@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 from pymongo import MongoClient
 from pymongo.collection import Collection
@@ -17,8 +18,16 @@ if not mongodb_uri:
     raise RuntimeError("MONGODB_URI is not set.")
 
 client: MongoClient = MongoClient(mongodb_uri)
-db: Database = client["twitter_project"]
+db: Database = client["twitter"]
 tweets: Collection[dict[str, Any]] = db["tweets"]
+tweets.create_index([("created_at", -1), ("id", -1)], name="created_at_id_desc")
+tweets.create_index([("favorite_count", -1), ("id", -1)], name="favorite_count_id_desc")
+
+sample_created_at_document = tweets.find_one({"created_at": {"$exists": True}}, {"created_at": 1})
+created_at_storage_is_datetime = bool(
+    sample_created_at_document
+    and isinstance(sample_created_at_document.get("created_at"), datetime)
+)
 
 # Pydantic models for the tweet document structure
 class TweetUser(BaseModel):
@@ -40,6 +49,17 @@ class TweetPlace(BaseModel):
     place_type: str | None = None
 
 
+class TweetHashtag(BaseModel):
+    text: str
+
+
+class TweetEntities(BaseModel):
+    hashtags: list[TweetHashtag]
+    urls: list[Any] | None = None
+    user_mentions: list[Any] | None = None
+    symbols: list[Any] | None = None
+
+
 class TweetMetrics(BaseModel):
     reply_count: int | None = None
     retweet_count: int | None = None
@@ -52,13 +72,13 @@ class TweetDocument(BaseModel):
     created_at: datetime
     text: str
     lang: str | None = None
-    tweet_type: Literal["simple", "reply", "retweet", "quote"]
+    tweet_type: Literal["simple", "reply", "retweet", "quote"] | None = None
     user: TweetUser
     reply: TweetReply | None = None
     retweeted_status_id: int | None = None
     quoted_status_id: int | None = None
     place: TweetPlace | None = None
-    hashtags: list[str]
+    entities: TweetEntities
     metrics: TweetMetrics | None = None
     raw: dict[str, Any] | None = None
 
@@ -67,6 +87,23 @@ class TweetDocument(BaseModel):
 
 
 app = FastAPI()
+
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ALLOW_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if origin.strip()
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 def read_root():
@@ -95,18 +132,94 @@ def decode_cursor(cursor: str | None) -> dict[str, Any] | None:
 def score_expression() -> dict[str, Any]:
     return {
         "$add": [
-            {"$ifNull": ["$metrics.favorite_count", 0]},
-            {"$multiply": [{"$ifNull": ["$metrics.retweet_count", 0]}, 2]},
-            {"$ifNull": ["$metrics.reply_count", 0]},
+            {
+                "$ifNull": [
+                    "$metrics.favorite_count",
+                    {"$ifNull": ["$favorite_count", 0]},
+                ]
+            },
+            {
+                "$multiply": [
+                    {
+                        "$ifNull": [
+                            "$metrics.retweet_count",
+                            {"$ifNull": ["$retweet_count", 0]},
+                        ]
+                    },
+                    2,
+                ]
+            },
+            {
+                "$ifNull": [
+                    "$metrics.reply_count",
+                    {"$ifNull": ["$reply_count", 0]},
+                ]
+            },
         ]
     }
 
 
-def project_feed_document() -> dict[str, Any]:
+def parse_cursor_created_at(value: str) -> datetime | str:
+    if created_at_storage_is_datetime:
+        return datetime.fromisoformat(value)
+
+    return value
+
+
+def cursor_created_at_to_text(value: datetime | str) -> str:
+    if isinstance(value, datetime):
+        return value.isoformat()
+
+    return value
+
+
+def build_latest_feed_query(cursor_data: dict[str, Any] | None) -> dict[str, Any]:
+    if cursor_data is None:
+        return {}
+
+    cursor_created_at = cursor_data.get("created_at")
+    cursor_id = cursor_data.get("id")
+
+    if not isinstance(cursor_created_at, str) or not isinstance(cursor_id, int):
+        raise HTTPException(status_code=400, detail="Invalid cursor.")
+
+    try:
+        created_at_value = parse_cursor_created_at(cursor_created_at)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid cursor.") from exc
+
+    return {
+        "$or": [
+            {"created_at": {"$lt": created_at_value}},
+            {"created_at": created_at_value, "id": {"$lt": cursor_id}},
+        ]
+    }
+
+
+def build_likes_feed_query(cursor_data: dict[str, Any] | None) -> dict[str, Any]:
+    if cursor_data is None:
+        return {}
+
+    cursor_favorite_count = cursor_data.get("favorite_count")
+    cursor_id = cursor_data.get("id")
+
+    if not isinstance(cursor_favorite_count, int) or not isinstance(cursor_id, int):
+        raise HTTPException(status_code=400, detail="Invalid cursor.")
+
+    return {
+        "$or": [
+            {"favorite_count": {"$lt": cursor_favorite_count}},
+            {"favorite_count": cursor_favorite_count, "id": {"$lt": cursor_id}},
+        ]
+    }
+
+
+def feed_projection() -> dict[str, Any]:
     return {
         "_id": 0,
         "id": 1,
         "created_at": 1,
+        "favorite_count": 1,
         "text": 1,
         "lang": 1,
         "tweet_type": 1,
@@ -115,15 +228,44 @@ def project_feed_document() -> dict[str, Any]:
         "retweeted_status_id": 1,
         "quoted_status_id": 1,
         "place": 1,
-        "hashtags": 1,
+        "entities": 1,
+        "hashtags": {
+            "$map": {
+                "input": {"$ifNull": ["$entities.hashtags", []]},
+                "as": "hashtag",
+                "in": "$$hashtag.text",
+            }
+        },
         "metrics": 1,
         "raw": 1,
     }
 
 
+def normalize_feed_document(document: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(document)
+    hashtags: list[str] = []
+
+    raw_hashtags = normalized.get("hashtags")
+    if isinstance(raw_hashtags, list) and all(isinstance(tag, str) for tag in raw_hashtags):
+        hashtags = raw_hashtags
+    else:
+        entities = normalized.get("entities")
+        if isinstance(entities, dict):
+            entity_hashtags = entities.get("hashtags")
+            if isinstance(entity_hashtags, list):
+                for hashtag in entity_hashtags:
+                    if isinstance(hashtag, dict):
+                        text = hashtag.get("text")
+                        if isinstance(text, str):
+                            hashtags.append(text)
+
+    normalized["hashtags"] = hashtags
+    return normalized
+
+
 @app.get("/api/tweets")
 def read_tweets_feed(
-    sort: Literal["latest", "popular"] = Query(default="latest"),
+    sort: Literal["latest", "likes", "popular"] = Query(default="latest"),
     limit: int = Query(default=20, ge=1, le=100),
     cursor: str | None = Query(default=None),
 ):
@@ -131,87 +273,22 @@ def read_tweets_feed(
     fetch_limit = limit + 1
 
     if sort == "latest":
-        pipeline: list[dict[str, Any]] = []
-
-        if cursor_data is not None:
-            cursor_created_at = cursor_data.get("created_at")
-            cursor_id = cursor_data.get("id")
-
-            if not isinstance(cursor_created_at, str) or not isinstance(cursor_id, int):
-                raise HTTPException(status_code=400, detail="Invalid cursor.")
-
-            try:
-                created_at_value = datetime.fromisoformat(cursor_created_at)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail="Invalid cursor.") from exc
-
-            pipeline.append(
-                {
-                    "$match": {
-                        "$or": [
-                            {"created_at": {"$lt": created_at_value}},
-                            {"created_at": created_at_value, "id": {"$lt": cursor_id}},
-                        ]
-                    }
-                }
-            )
-
-        pipeline.extend(
-            [
-                {"$sort": {"created_at": -1, "id": -1}},
-                {"$limit": fetch_limit},
-                {"$project": project_feed_document()},
-            ]
+        query = build_latest_feed_query(cursor_data)
+        docs = list(
+            tweets.find(query, projection=feed_projection())
+            .sort([("created_at", -1), ("id", -1)])
+            .limit(fetch_limit)
         )
+        docs = [normalize_feed_document(document) for document in docs]
 
-        docs = list(tweets.aggregate(pipeline, allowDiskUse=True))
-
-    elif sort == "popular":
-        pipeline = [
-            {"$addFields": {"score": score_expression()}},
-        ]
-
-        if cursor_data is not None:
-            cursor_score = cursor_data.get("score")
-            cursor_created_at = cursor_data.get("created_at")
-            cursor_id = cursor_data.get("id")
-
-            if not isinstance(cursor_score, int) or not isinstance(cursor_created_at, str) or not isinstance(cursor_id, int):
-                raise HTTPException(status_code=400, detail="Invalid cursor.")
-
-            try:
-                created_at_value = datetime.fromisoformat(cursor_created_at)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail="Invalid cursor.") from exc
-
-            pipeline.append(
-                {
-                    "$match": {
-                        "$or": [
-                            {"score": {"$lt": cursor_score}},
-                            {
-                                "score": cursor_score,
-                                "created_at": {"$lt": created_at_value},
-                            },
-                            {
-                                "score": cursor_score,
-                                "created_at": created_at_value,
-                                "id": {"$lt": cursor_id},
-                            },
-                        ]
-                    }
-                }
-            )
-
-        pipeline.extend(
-            [
-                {"$sort": {"score": -1, "created_at": -1, "id": -1}},
-                {"$limit": fetch_limit},
-                {"$project": {**project_feed_document(), "score": 1}},
-            ]
+    elif sort in {"likes", "popular"}:
+        query = build_likes_feed_query(cursor_data)
+        docs = list(
+            tweets.find(query, projection=feed_projection())
+            .sort([("favorite_count", -1), ("id", -1)])
+            .limit(fetch_limit)
         )
-
-        docs = list(tweets.aggregate(pipeline, allowDiskUse=True))
+        docs = [normalize_feed_document(document) for document in docs]
 
     else:
         raise HTTPException(status_code=400, detail="Unsupported sort order.")
@@ -226,22 +303,17 @@ def read_tweets_feed(
         if sort == "latest":
             next_cursor = encode_cursor(
                 {
-                    "created_at": last_doc["created_at"].isoformat(),
+                    "created_at": cursor_created_at_to_text(last_doc["created_at"]),
                     "id": int(last_doc["id"]),
                 }
             )
         else:
             next_cursor = encode_cursor(
                 {
-                    "score": int(last_doc["score"]),
-                    "created_at": last_doc["created_at"].isoformat(),
+                    "favorite_count": int(last_doc.get("favorite_count") or 0),
                     "id": int(last_doc["id"]),
                 }
             )
-
-    if sort == "popular":
-        for item in page:
-            item.pop("score", None)
 
     return {"data": page, "nextCursor": next_cursor}
 
@@ -286,11 +358,20 @@ def query_most_active_user():
 def query_top_hashtags(limit=100):
 
     pipeline = [
+        {"$addFields": {
+            "hashtags": {
+                "$map": {
+                    "input": {"$ifNull": ["$entities.hashtags", []]},
+                    "as": "hashtag",
+                    "in": {"$toLower": "$$hashtag.text"}
+                }
+            }
+        }},
         {"$match": {"hashtags.0": {"$exists": True}}},
         {"$unwind": "$hashtags"},
         {"$project": {
             "tweet_id": "$id",
-            "tag": {"$toLower": "$hashtags"}
+            "tag": "$hashtags"
         }},
         {"$group": {"_id": {"tweet_id": "$tweet_id", "tag": "$tag"}}}, #multiple tags per tweet, either the same twice, or some other
         {"$group": {"_id": "$_id.tag", "tweet_count": {"$sum": 1}}},

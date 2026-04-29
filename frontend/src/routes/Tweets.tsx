@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import axios from "axios";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import {
 	Alert,
@@ -29,9 +30,9 @@ interface RawTweetsResponse {
 const PAGE_SIZE = 20;
 
 const popularityScore = (tweet: TweetDocument): number => {
-	const favoriteCount = tweet.metrics?.favorite_count ?? 0;
-	const retweetCount = tweet.metrics?.retweet_count ?? 0;
-	const replyCount = tweet.metrics?.reply_count ?? 0;
+	const favoriteCount = tweet.metrics?.favorites ?? 0;
+	const retweetCount = tweet.metrics?.retweets ?? 0;
+	const replyCount = tweet.metrics?.replies ?? 0;
 
 	return favoriteCount + retweetCount * 2 + replyCount;
 };
@@ -75,13 +76,9 @@ const fetchTweetsPage = async ({
 		params.set("cursor", pageParam);
 	}
 
-	const response = await fetch(`/api/tweets?${params.toString()}`);
-
-	if (!response.ok) {
-		throw new Error("Unable to load tweets feed.");
-	}
-
-	const raw = (await response.json()) as RawTweetsResponse | TweetDocuments;
+	const { data: raw } = await axios.get<RawTweetsResponse | TweetDocuments>("/tweets", {
+		params,
+	});
 
 	// Supports either array responses or paginated object responses.
 	if (Array.isArray(raw)) {
@@ -213,13 +210,13 @@ const Tweets = (): React.JSX.Element => {
 
 							<div className="d-flex gap-2 flex-wrap">
 								<Badge pill color="light" className="text-dark border">
-									Replies: {tweet.metrics?.reply_count ?? 0}
+									Replies: {tweet.metrics?.replies ?? 0}
 								</Badge>
 								<Badge pill color="light" className="text-dark border">
-									Retweets: {tweet.metrics?.retweet_count ?? 0}
+									Retweets: {tweet.metrics?.retweets ?? 0}
 								</Badge>
 								<Badge pill color="light" className="text-dark border">
-									Likes: {tweet.metrics?.favorite_count ?? 0}
+									Likes: {tweet.metrics?.favorites ?? 0}
 								</Badge>
 								<Badge pill color="secondary">
 									Score: {popularityScore(tweet)}

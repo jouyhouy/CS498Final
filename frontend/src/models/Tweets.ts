@@ -20,9 +20,10 @@ export interface TweetPlace {
 }
 
 export interface TweetMetrics {
-	reply_count: number | null;
-	retweet_count: number | null;
-	favorite_count: number | null;
+	likes: number;
+	favorites: number;
+	replies: number;
+	retweets: number;
 }
 
 export interface TweetDocument {
