@@ -332,7 +332,7 @@ def get_top_countries():
     countries: list[TopCountry] = query_top_countries()
     return countries
 
-def query_top_countries():
+def query_top_countries() -> list[TopCountry]:
     pipeline = [
         {"$match": {
             "place.country": {"$exists": True, "$ne": None}
@@ -345,7 +345,10 @@ def query_top_countries():
         {"$sort": {"tweet_count": -1}}
     ]
 
-    return list(tweets.aggregate(pipeline))
+    return [
+        TopCountry.model_validate(country)
+        for country in tweets.aggregate(pipeline, allowDiskUse=True)
+    ]
 
 def query_most_active_user() -> list:
     pipeline = [
