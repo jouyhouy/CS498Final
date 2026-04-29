@@ -1,10 +1,11 @@
 import React from "react";
 import { Navbar as ReactstrapNavbar, NavbarBrand } from "reactstrap";
+import { Link } from "react-router"
 
 const Navbar: React.FC = () => {
     return (
         <ReactstrapNavbar light color="light" expand="md">
-            <NavbarBrand href="/">CS 498</NavbarBrand>
+            <NavbarBrand tag={Link} to="/">CS 498</NavbarBrand>
         </ReactstrapNavbar>
     );
 };
