@@ -1,25 +1,33 @@
-import './App.css'
-import { BrowserRouter, Routes, Route } from "react-router"
-import Navbar from "./components/Navbar"
-import Footer from "./components/Footer"
+import "./App.css";
+import { BrowserRouter, Routes, Route } from "react-router";
+import Navbar from "./components/Navbar";
+import Footer from "./components/Footer";
 /** Route Declarations */
-import Home from "./routes/Home"
-import Tweets from "./routes/Tweets"
-import TopCountries from './routes/TopCountries'
+import Home from "./routes/Home";
+import TopCountries from "./routes/TopCountries";
+import TweetsByUser from "./routes/UserTweets";
+import MostActiveUsers from "./routes/MostActiveUsers";
+import TopHashtags from "./routes/TopHashtags";
 /** End Route Declarations */
 
 const App = (): React.JSX.Element => {
   return (
     <BrowserRouter>
-      <Navbar />
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/tweets" element={<Tweets />} />
-        <Route path="/top-countries" element={<TopCountries />} />
-      </Routes>
-      <Footer />
+      <div className="app-shell">
+        <Navbar />
+        <main className="app-content">
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/top-countries" element={<TopCountries />} />
+            <Route path="/tweets-by-user" element={<TweetsByUser />} />
+            <Route path="/most-active-users" element={<MostActiveUsers />} />
+            <Route path="/top-hashtags" element={<TopHashtags />} />
+          </Routes>
+        </main>
+        <Footer />
+      </div>
     </BrowserRouter>
-  )
-}
+  );
+};
 
-export default App
+export default App;
