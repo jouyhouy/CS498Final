@@ -9,8 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
-from queries import query_top_countries, query_most_active_user, query_top_hashtags
-from models.TweetModels import HashtagCount, HashtagCount, TweetDocument, TopCountry, UserTweetCount
+from queries import engagement_breakdown, query_top_countries, query_most_active_user, query_top_hashtags
+from models.TweetModels import EngagementBreakdown, HashtagCount, HashtagCount, TweetDocument, TopCountry, UserTweetCount
 
 load_dotenv()
 
@@ -47,15 +47,6 @@ app.add_middleware(
 def read_root():
     return {"Hello": "World"}
 
-@app.get("/api/most-active-user", response_model=list[UserTweetCount])
-def get_most_active_users():
-    users = query_most_active_user(tweets)
-    return [
-        UserTweetCount.model_validate(user)
-        for user in users
-    ]
-
-
 @app.get("/api/tweets-by-user", response_model=list[TweetDocument])
 def get_tweets_by_user(username: str) -> list[TweetDocument]:
     user_tweets = tweets.find(
@@ -63,12 +54,27 @@ def get_tweets_by_user(username: str) -> list[TweetDocument]:
     )
     return [TweetDocument.model_validate(tweet) for tweet in user_tweets]
 
-
+# Query 1
 @app.get("/api/top-countries", response_model=list[TopCountry])
 def get_top_countries():
     countries: list[TopCountry] = query_top_countries(tweets)
     return countries
 
+# Query 2
 @app.get("/api/top-hashtags", response_model=list[HashtagCount])
 def get_top_hashtags(limit: int = 100):
     return [HashtagCount.model_validate(hashtag) for hashtag in query_top_hashtags(tweets, limit=limit)]
+
+# Query 3
+@app.get("/api/engagement-breakdown", response_model=list[EngagementBreakdown])
+def get_engagement_breakdown(limit: int | None = None):
+    return engagement_breakdown(tweets, limit=limit)
+
+# Query 4
+@app.get("/api/most-active-user", response_model=list[UserTweetCount])
+def get_most_active_users():
+    users = query_most_active_user(tweets)
+    return [
+        UserTweetCount.model_validate(user)
+        for user in users
+    ]
