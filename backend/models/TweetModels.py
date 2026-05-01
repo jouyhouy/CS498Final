@@ -101,3 +101,12 @@ class UserTweetCount(BaseModel):
 class HashtagCount(BaseModel):
     hashtag: str
     count: int
+
+class EngagementBreakdown(BaseModel):
+    user_id: int
+    user_name: str
+    screen_name: str
+    total: int
+    retweets: int
+    quotes: int
+    replies: int
