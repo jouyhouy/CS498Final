@@ -87,6 +87,24 @@ const Home: React.FC = () => {
             </CardBody>
           </Card>
         </Col>
+        <Col md={6} lg={4}>
+          <Card className="h-100">
+            <CardBody className="d-flex flex-column">
+              <CardTitle tag="h5">Engagement Breakdown</CardTitle>
+              <CardText>
+                View the breakdown of engagements (retweets, quotes, replies) by verified users.
+              </CardText>
+              <Button
+                color="primary"
+                className="mt-auto"
+                tag={Link}
+                to="/engagement-breakdown"
+              >
+                View Engagement Breakdown
+              </Button>
+            </CardBody>
+          </Card>
+        </Col>
       </Row>
     </Container>
   );
