@@ -103,10 +103,10 @@ class HashtagCount(BaseModel):
     count: int
 
 class EngagementBreakdown(BaseModel):
-    user_id: int
     user_name: str
     screen_name: str
-    total: int
-    retweets: int
-    quotes: int
-    replies: int
+    total_tweets: int
+    simple_percent: float
+    retweet_percent: float
+    quote_percent: float
+    reply_percent: float
