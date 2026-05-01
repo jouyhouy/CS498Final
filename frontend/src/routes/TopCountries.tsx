@@ -35,10 +35,10 @@ export const TopCountries = (): React.JSX.Element => {
 
     if (isLoading) {
         return (
-            <Container className="mt-4 text-center">
-                <Spinner />
-                <p className="mt-2">Loading top countries (This may take awhile...)</p>
-            </Container>
+            <div className="d-flex flex-column flex-grow-1 justify-content-center align-items-center w-100 py-5">
+                <Spinner color="primary" />
+                <p>Loading... (this may take a moment)</p>
+            </div>
         );
     }
 
