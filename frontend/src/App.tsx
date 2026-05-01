@@ -8,6 +8,7 @@ import TopCountries from "./routes/TopCountries";
 import TweetsByUser from "./routes/UserTweets";
 import MostActiveUsers from "./routes/MostActiveUsers";
 import TopHashtags from "./routes/TopHashtags";
+import EngagementBreakdown from "./routes/EngagementBreakdown";
 /** End Route Declarations */
 
 const App = (): React.JSX.Element => {
@@ -22,6 +23,7 @@ const App = (): React.JSX.Element => {
             <Route path="/tweets-by-user" element={<TweetsByUser />} />
             <Route path="/most-active-users" element={<MostActiveUsers />} />
             <Route path="/top-hashtags" element={<TopHashtags />} />
+            <Route path="/engagement-breakdown" element={<EngagementBreakdown />} />
           </Routes>
         </main>
         <Footer />
