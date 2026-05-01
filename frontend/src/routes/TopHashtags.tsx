@@ -44,7 +44,7 @@ const TopHashtags = (): React.JSX.Element => {
                     <CardTitle tag="h2" className="mb-4">
                         Top Hashtags by Count
                     </CardTitle>
-                    <Table stripe hover responsive>
+                    <Table striped hover responsive>
                         <thead>
                             <tr>
                                 <th>Hashtag</th>
